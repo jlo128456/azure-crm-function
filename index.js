@@ -1,9 +1,5 @@
 const sql = require('mssql');
 
-const config = {
-    connectionString: process.env.SQL_CONNECTION_STRING
-};
-
 module.exports = async function (context, req) {
 
     const job_id = req.query.job_id || (req.body && req.body.job_id);
@@ -17,14 +13,23 @@ module.exports = async function (context, req) {
         return;
     }
 
+    let pool;
     try {
-        await sql.connect(config);
+        pool = await new sql.ConnectionPool({
+            server: 'jlo-crm-server.database.windows.net',
+            database: 'free-sql-db-4024986',
+            user: 'jloadmin',
+            password: process.env.SQL_PASSWORD,
+            port: 1433,
+            options: {
+                encrypt: true,
+                trustServerCertificate: false
+            }
+        }).connect();
 
-        const result = await sql.query`
-            SELECT job_id, status, technician, venue, created_at 
-            FROM jobs 
-            WHERE job_id = ${job_id}
-        `;
+        const result = await pool.request()
+            .input('job_id', sql.VarChar, job_id)
+            .query('SELECT job_id, status, technician, venue, created_at FROM jobs WHERE job_id = @job_id');
 
         if (result.recordset.length === 0) {
             context.res = {
@@ -42,13 +47,13 @@ module.exports = async function (context, req) {
         };
 
     } catch (err) {
-        context.log.error('Database error:', err);
+        context.log.error('Database error:', err.message);
         context.res = {
             status: 500,
             headers: { "Content-Type": "application/json" },
-            body: { error: "Database connection failed", detail: err.message }
+            body: { error: "Database error", detail: err.message }
         };
     } finally {
-        await sql.close();
+        if (pool) await pool.close();
     }
 };
